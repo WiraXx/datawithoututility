@@ -56,11 +56,19 @@ $("#sort").value=P.get("o")||"hot";$("#t").value=P.get("t")||"week";
 function sync(){const u=new URL(location);u.search=new URLSearchParams({s:[...active].join(","),o:$("#sort").value,t:$("#t").value});history.replaceState(0,"",u)}
 function chips(){$("#chips").innerHTML="";SUBS.forEach(s=>{const b=document.createElement("button");b.className="chip"+(active.has(s)?" on":"");b.textContent="r/"+s;b.onclick=()=>{active.has(s)?active.delete(s):active.add(s);if(!active.size)active.add(s);reset()};$("#chips").append(b)})}
 $("#sort").onchange=$("#t").onchange=()=>reset();
-function reset(){after={};seen.clear();$("#feed").innerHTML="";chips();sync();load()}
+function reset(){local=false;after={};seen.clear();$("#feed").innerHTML="";chips();sync();load()}
 
 // chargement
+let local=false;
+async function loadLocal(){
+ const j=await (await fetch("charts.json")).json();
+ local=true;after={};
+ const f=j.filter(p=>active.has(p.subreddit)||!SUBS.includes(p.subreddit));
+ f.forEach(p=>{if(!seen.has(p.id)){seen.add(p.id);$("#feed").append(card(p))}});
+ $("#st").textContent=f.length?"Mode hors-ligne : liste locale (Reddit inaccessible)":"Aucun graphique dans charts.json";
+}
 async function load(){
- if(loading)return;loading=true;$("#st").textContent="Chargement…";$("#more").hidden=true;
+ if(loading||local)return;loading=true;$("#st").textContent="Chargement…";$("#more").hidden=true;
  const o=$("#sort").value,t=$("#t").value;
  const res=await Promise.all([...active].map(async s=>{
   if(after[s]===null)return[];
@@ -72,6 +80,7 @@ async function load(){
  const posts=res.flat().filter(p=>!seen.has(p.id)&&/\.(jpe?g|png|gif|webp)/i.test(p.url||"")||p.post_hint=="image"&&!seen.has(p.id));
  posts.sort((a,b)=>b.created_utc-a.created_utc);
  posts.forEach(p=>{seen.add(p.id);$("#feed").append(card(p))});
+ if(!posts.length&&!seen.size){loading=false;return loadLocal().catch(()=>$("#st").textContent="Reddit bloqué et charts.json introuvable")}
  $("#st").textContent=posts.length?"":"Rien de plus 🤷";
  $("#more").hidden=Object.values(after).every(v=>v===null);
  loading=false;
