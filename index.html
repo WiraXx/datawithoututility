@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChartFeed</title>
+<style>
+:root{--bg:#f4f5f7;--fg:#1a1a1a;--card:#fff;--mut:#666;--acc:#ff4500;--bd:#e2e4e8}
+[data-theme=dark]{--bg:#121316;--fg:#eee;--card:#1e2025;--mut:#9aa0a6;--bd:#2c2f36}
+*{box-sizing:border-box}
+body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--bd);padding:10px 14px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:720px;margin:auto}
+h1{font-size:18px;margin:0;flex:1}
+button,select{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;cursor:pointer}
+.chips{margin-top:8px}
+.chip{border-radius:16px;font-size:14px}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+main{max-width:720px;margin:14px auto;padding:0 14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;margin-bottom:16px;overflow:hidden}
+.card h2{font-size:16px;margin:0;padding:12px 14px 8px}
+.card img{width:100%;display:block;background:#000}
+.meta{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;color:var(--mut);font-size:13px;gap:8px;flex-wrap:wrap}
+.meta a{color:var(--acc);text-decoration:none}
+.act button{padding:4px 8px}
+#more{display:block;margin:20px auto}
+#st{text-align:center;color:var(--mut);padding:20px}
+</style>
+</head>
+<body>
+<header>
+ <div class="row">
+  <h1>📊 ChartFeed</h1>
+  <select id="sort"><option value="hot">Hot</option><option value="top">Top</option><option value="new">New</option></select>
+  <select id="t"><option value="week">Semaine</option><option value="day">Jour</option><option value="month">Mois</option><option value="year">Année</option><option value="all">Tout</option></select>
+  <button id="theme">🌓</button>
+ </div>
+ <div class="row chips" id="chips"></div>
+</header>
+<main><div id="feed"></div><div id="st"></div><button id="more" hidden>Charger plus</button></main>
+<script>
+const SUBS=["dataisugly","dataisbeautiful","BadChartCrimes","mapporn","dataisbeautiful","infographics","ChartCrimes","mildlyinfuriating"].filter((v,i,a)=>a.indexOf(v)===i);
+const $=s=>document.querySelector(s);
+const P=new URLSearchParams(location.search);
+let active=new Set((P.get("s")||"dataisugly,BadChartCrimes").split(",").filter(x=>SUBS.includes(x)));
+let after={},seen=new Set(),loading=false;
+if(!active.size)active.add("dataisugly");
+
+// thème
+const th=localStorage.th||(matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light");
+document.documentElement.dataset.theme=th;
+$("#theme").onclick=()=>{const d=document.documentElement.dataset;d.theme=localStorage.th=d.theme=="dark"?"light":"dark"};
+
+// filtres
+$("#sort").value=P.get("o")||"hot";$("#t").value=P.get("t")||"week";
+function sync(){const u=new URL(location);u.search=new URLSearchParams({s:[...active].join(","),o:$("#sort").value,t:$("#t").value});history.replaceState(0,"",u)}
+function chips(){$("#chips").innerHTML="";SUBS.forEach(s=>{const b=document.createElement("button");b.className="chip"+(active.has(s)?" on":"");b.textContent="r/"+s;b.onclick=()=>{active.has(s)?active.delete(s):active.add(s);if(!active.size)active.add(s);reset()};$("#chips").append(b)})}
+$("#sort").onchange=$("#t").onchange=()=>reset();
+function reset(){after={};seen.clear();$("#feed").innerHTML="";chips();sync();load()}
+
+// chargement
+async function load(){
+ if(loading)return;loading=true;$("#st").textContent="Chargement…";$("#more").hidden=true;
+ const o=$("#sort").value,t=$("#t").value;
+ const res=await Promise.all([...active].map(async s=>{
+  if(after[s]===null)return[];
+  try{
+   const r=await fetch(`https://www.reddit.com/r/${s}/${o}.json?raw_json=1&limit=25&t=${t}${after[s]?"&after="+after[s]:""}`);
+   const j=(await r.json()).data;after[s]=j.after;return j.children.map(c=>c.data);
+  }catch(e){after[s]=null;return[]}
+ }));
+ const posts=res.flat().filter(p=>!seen.has(p.id)&&/\.(jpe?g|png|gif|webp)/i.test(p.url||"")||p.post_hint=="image"&&!seen.has(p.id));
+ posts.sort((a,b)=>b.created_utc-a.created_utc);
+ posts.forEach(p=>{seen.add(p.id);$("#feed").append(card(p))});
+ $("#st").textContent=posts.length?"":"Rien de plus 🤷";
+ $("#more").hidden=Object.values(after).every(v=>v===null);
+ loading=false;
+}
+function card(p){
+ const d=document.createElement("div");d.className="card";d.id=p.id;
+ const h=document.createElement("h2");h.textContent=p.title;
+ const i=document.createElement("img");i.loading="lazy";i.src=p.url;i.alt=p.title;
+ const m=document.createElement("div");m.className="meta";
+ m.innerHTML=`<span>r/${p.subreddit} · ▲${p.score}</span><span class="act"><a href="https://reddit.com${p.permalink}" target="_blank" rel="noopener">Reddit ↗</a> <button>🔗 Partager</button></span>`;
+ m.querySelector("button").onclick=async()=>{
+  const u=new URL(location);u.hash=p.id;u.search=new URLSearchParams({s:p.subreddit,o:$("#sort").value,t:$("#t").value});
+  try{await navigator.clipboard.writeText(u.href);m.querySelector("button").textContent="✅ Copié"}catch{prompt("Lien :",u.href)}
+ };
+ d.append(h,i,m);return d;
+}
+$("#more").onclick=load;
+addEventListener("scroll",()=>{if(innerHeight+scrollY>document.body.offsetHeight-800&&!$("#more").hidden)load()});
+chips();load().then(()=>{if(location.hash)setTimeout(()=>document.getElementById(location.hash.slice(1))?.scrollIntoView(),500)});
+</script>
+</body>
+</html>
